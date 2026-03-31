@@ -762,8 +762,20 @@
       const points = historyPoints.length >= 2
         ? historyPoints
         : apiChart.map((d) => ({ t: d.date, p: d.close }));
+      const svg = detailChartEl;
+      const ns = "http://www.w3.org/2000/svg";
+      svg.setAttribute("viewBox", "0 0 480 130");
+      svg.replaceChildren();
       if (points.length < 2) {
-        detailChartEl.innerHTML = '<text x=\"50%\" y=\"50%\" fill=\"#93a0b5\" font-size=\"13\" text-anchor=\"middle\" dominant-baseline=\"middle\">차트 데이터 수집 중...</text>';
+        const text = document.createElementNS(ns, "text");
+        text.setAttribute("x", "50%");
+        text.setAttribute("y", "50%");
+        text.setAttribute("fill", "#93a0b5");
+        text.setAttribute("font-size", "13");
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("dominant-baseline", "middle");
+        text.textContent = "차트 데이터 수집 중...";
+        svg.appendChild(text);
         chartMetaEl.innerHTML = '<span>차트 데이터 수집 중입니다.</span>';
         return;
       }
@@ -783,14 +795,31 @@
       const last = prices[prices.length - 1];
       const first = prices[0];
       const up = last >= first;
-      const stroke = up ? "#00d4aa" : "#ff5b6e";
+      const stroke = up ? "#00f0c0" : "#ff6b7a";
 
       const area = `${pad},${h - pad} ${polyline} ${w - pad},${h - pad}`;
-      detailChartEl.innerHTML = `
-        <polyline points="${area}" fill="${up ? "rgba(0,212,170,0.16)" : "rgba(255,91,110,0.14)"}" stroke="none"></polyline>
-        <polyline points="${polyline}" fill="none" stroke="${stroke}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></polyline>
-        <circle cx="${toX(prices.length - 1)}" cy="${toY(last)}" r="3.8" fill="${stroke}"></circle>
-      `;
+      const areaNode = document.createElementNS(ns, "polyline");
+      areaNode.setAttribute("points", area);
+      areaNode.setAttribute("fill", up ? "rgba(0,212,170,0.18)" : "rgba(255,91,110,0.16)");
+      areaNode.setAttribute("stroke", "none");
+
+      const lineNode = document.createElementNS(ns, "polyline");
+      lineNode.setAttribute("points", polyline);
+      lineNode.setAttribute("fill", "none");
+      lineNode.setAttribute("stroke", stroke);
+      lineNode.setAttribute("stroke-width", "2.6");
+      lineNode.setAttribute("stroke-linecap", "round");
+      lineNode.setAttribute("stroke-linejoin", "round");
+
+      const dotNode = document.createElementNS(ns, "circle");
+      dotNode.setAttribute("cx", String(toX(prices.length - 1)));
+      dotNode.setAttribute("cy", String(toY(last)));
+      dotNode.setAttribute("r", "3.8");
+      dotNode.setAttribute("fill", stroke);
+
+      svg.appendChild(areaNode);
+      svg.appendChild(lineNode);
+      svg.appendChild(dotNode);
       chartMetaEl.innerHTML = `
         <span>저가 ${formatNumber(min)}원</span>
         <span>고가 ${formatNumber(max)}원</span>
