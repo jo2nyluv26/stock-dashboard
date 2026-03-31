@@ -428,6 +428,36 @@
 
     .detail-link:hover { text-decoration: underline; }
 
+    .chart-wrap {
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(8, 13, 22, 0.9);
+      padding: 8px;
+    }
+
+    .chart-label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .price-chart {
+      width: 100%;
+      height: 130px;
+      display: block;
+    }
+
+    .chart-meta {
+      margin-top: 6px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
     @media (max-width: 820px) {
       .controls { grid-template-columns: 1fr 1fr; }
       .controls input { grid-column: 1 / -1; }
@@ -473,6 +503,11 @@
       </div>
       <div id="detailPrice" class="detail-price">-</div>
       <section id="detailGrid" class="detail-grid"></section>
+      <section class="chart-wrap">
+        <div class="chart-label">최근 가격 흐름 (30초 간격)</div>
+        <svg id="detailChart" class="price-chart" viewBox="0 0 480 130" preserveAspectRatio="none" aria-label="가격 차트"></svg>
+        <div id="chartMeta" class="chart-meta"></div>
+      </section>
       <div class="detail-foot">
         <span id="detailTime">-</span>
         <a id="detailLink" class="detail-link" target="_blank" rel="noopener noreferrer">네이버 금융 보기</a>
@@ -482,8 +517,10 @@
 
   <script>
     const STORAGE_KEY = "watchSymbols";
+    const HISTORY_KEY = "watchHistory";
     const MAX_SYMBOLS = 10;
     const REFRESH_MS = 30000;
+    const MAX_HISTORY = 40;
 
     const PRESETS = [
       { name: "롯데이노베이트", symbol: "286940" },
@@ -510,12 +547,15 @@
     const detailGridEl = document.getElementById("detailGrid");
     const detailTimeEl = document.getElementById("detailTime");
     const detailLinkEl = document.getElementById("detailLink");
+    const detailChartEl = document.getElementById("detailChart");
+    const chartMetaEl = document.getElementById("chartMeta");
 
     let symbols = loadSymbols();
     let prevPrices = {};
     let refreshTimer = null;
     let latestDataBySymbol = {};
     let selectedSymbol = null;
+    let priceHistory = loadHistory();
 
     function loadSymbols() {
       try {
@@ -530,12 +570,32 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(symbols));
     }
 
+    function loadHistory() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(HISTORY_KEY) || "{}");
+        if (!raw || typeof raw !== "object") return {};
+        return raw;
+      } catch {
+        return {};
+      }
+    }
+
+    function saveHistory() {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(priceHistory));
+    }
+
     function isValidSymbol(symbol) {
       return /^\d{6}$/.test(symbol);
     }
 
     function formatNumber(value) {
       return Number(value || 0).toLocaleString("ko-KR");
+    }
+
+    function safeStatText(value, suffix = "") {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return "-";
+      return `${formatNumber(n)}${suffix}`;
     }
 
     function formatTimestamp(iso) {
@@ -573,6 +633,8 @@
       symbols = symbols.filter((s) => s !== symbol);
       delete prevPrices[symbol];
       delete latestDataBySymbol[symbol];
+      delete priceHistory[symbol];
+      saveHistory();
       if (selectedSymbol === symbol) closeDetail();
       saveSymbols();
       fetchAll();
@@ -640,9 +702,9 @@
             <button class="remove" data-symbol="${item.symbol}">삭제</button>
           </div>
           <div class="price">${formatNumber(item.price)}원</div>
-          <div class="row ${directionClass}"><span class="key">등락률</span><strong>${signedRate}</strong></div>
-          <div class="row ${directionClass}"><span class="key">등락금액</span><strong>${signedChange}원</strong></div>
-          <div class="row"><span class="key">거래량</span><strong>${formatNumber(item.volume)}</strong></div>
+          <div class="row ${directionClass}"><span class="key">등락률</span><strong>${Number.isFinite(Number(item.rate)) ? signedRate : "-"}</strong></div>
+          <div class="row ${directionClass}"><span class="key">등락금액</span><strong>${Number.isFinite(Number(item.change)) ? `${signedChange}원` : "-"}</strong></div>
+          <div class="row"><span class="key">거래량</span><strong>${safeStatText(item.volume)}</strong></div>
           <div class="trend"><span style="width:${getTrendWidth(item.rate)}"></span></div>
         `;
 
@@ -670,11 +732,66 @@
       detailGridEl.innerHTML = `
         <div class="detail-cell"><div class="k">등락률</div><div class="v ${directionClass}">${getSignedRate(item.rate)}</div></div>
         <div class="detail-cell"><div class="k">등락금액</div><div class="v ${directionClass}">${getSignedChange(item.change)}원</div></div>
-        <div class="detail-cell"><div class="k">거래량</div><div class="v">${formatNumber(item.volume)}</div></div>
+        <div class="detail-cell"><div class="k">거래량</div><div class="v">${safeStatText(item.volume)}</div></div>
         <div class="detail-cell"><div class="k">현재 추세</div><div class="v ${directionClass}">${item.rate > 0 ? "상승" : item.rate < 0 ? "하락" : "보합"}</div></div>
       `;
       detailTimeEl.textContent = `업데이트: ${formatTimestamp(item.timestamp)}`;
       detailLinkEl.href = `https://finance.naver.com/item/main.naver?code=${item.symbol}`;
+      renderPriceChart(item.symbol);
+    }
+
+    function updateHistory(items) {
+      items.forEach((item) => {
+        const symbol = item.symbol;
+        if (!priceHistory[symbol]) priceHistory[symbol] = [];
+        const bucket = priceHistory[symbol];
+        bucket.push({
+          t: item.timestamp,
+          p: Number(item.price) || 0
+        });
+        if (bucket.length > MAX_HISTORY) {
+          bucket.splice(0, bucket.length - MAX_HISTORY);
+        }
+      });
+      saveHistory();
+    }
+
+    function renderPriceChart(symbol) {
+      const points = (priceHistory[symbol] || []).filter((p) => Number.isFinite(Number(p.p)) && Number(p.p) > 0);
+      if (points.length < 2) {
+        detailChartEl.innerHTML = '<text x=\"50%\" y=\"50%\" fill=\"#93a0b5\" font-size=\"13\" text-anchor=\"middle\" dominant-baseline=\"middle\">차트 데이터 수집 중...</text>';
+        chartMetaEl.innerHTML = '<span>최소 2개 스냅샷부터 표시됩니다.</span>';
+        return;
+      }
+
+      const w = 480;
+      const h = 130;
+      const pad = 10;
+      const prices = points.map((p) => Number(p.p));
+      const min = Math.min(...prices);
+      const max = Math.max(...prices);
+      const range = max - min || 1;
+
+      const toX = (idx) => pad + (idx * (w - pad * 2)) / (points.length - 1);
+      const toY = (price) => h - pad - ((price - min) * (h - pad * 2)) / range;
+
+      const polyline = prices.map((price, idx) => `${toX(idx)},${toY(price)}`).join(" ");
+      const last = prices[prices.length - 1];
+      const first = prices[0];
+      const up = last >= first;
+      const stroke = up ? "#00d4aa" : "#ff5b6e";
+
+      const area = `${pad},${h - pad} ${polyline} ${w - pad},${h - pad}`;
+      detailChartEl.innerHTML = `
+        <polyline points="${area}" fill="${up ? "rgba(0,212,170,0.16)" : "rgba(255,91,110,0.14)"}" stroke="none"></polyline>
+        <polyline points="${polyline}" fill="none" stroke="${stroke}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"></polyline>
+        <circle cx="${toX(prices.length - 1)}" cy="${toY(last)}" r="3.8" fill="${stroke}"></circle>
+      `;
+      chartMetaEl.innerHTML = `
+        <span>저가 ${formatNumber(min)}원</span>
+        <span>고가 ${formatNumber(max)}원</span>
+        <span>변화 ${last - first >= 0 ? "+" : ""}${formatNumber(last - first)}원</span>
+      `;
     }
 
     function openDetail(symbol) {
@@ -724,6 +841,7 @@
       );
 
       latestDataBySymbol = Object.fromEntries(results.map((item) => [item.symbol, item]));
+      updateHistory(results);
 
       renderSummary(results);
       renderCards(results);

@@ -9,9 +9,17 @@ function extractText(html, regex) {
   return match ? match[1].trim() : "";
 }
 
+function extractByPatterns(html, patterns) {
+  for (const pattern of patterns) {
+    const value = extractText(html, pattern);
+    if (value) return value;
+  }
+  return "";
+}
+
 function parseNumber(text) {
   if (!text) return 0;
-  const cleaned = text.replace(/[^\d.-]/g, "");
+  const cleaned = text.replace(/[−﹣]/g, "-").replace(/[^\d.-]/g, "");
   const num = Number(cleaned);
   return Number.isFinite(num) ? num : 0;
 }
@@ -22,30 +30,41 @@ function parseStock(html, symbol) {
     /<div class="wrap_company">[\s\S]*?<h2>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i
   );
 
-  const priceText = extractText(
-    html,
-    /<p class="no_today">[\s\S]*?<span class="blind">([\d,]+)<\/span>/i
-  );
+  const priceText = extractByPatterns(html, [
+    /<p class="no_today">[\s\S]*?<span class="blind">([\d,]+)<\/span>/i,
+    /<dd>[\s\S]*?현재가[\s\S]*?<span class="blind">([\d,]+)<\/span>/i
+  ]);
 
-  const directionText = extractText(
-    html,
-    /<p class="no_exday">[\s\S]*?<span class="blind">(상승|하락|보합)<\/span>/i
-  );
+  const noExdayBlock = extractText(html, /<p class="no_exday">([\s\S]*?)<\/p>/i);
+  const noExdayBlind = [...noExdayBlock.matchAll(/<span class="blind">([^<]+)<\/span>/gi)].map((m) => m[1].trim());
 
-  const changeText = extractText(
-    html,
-    /<p class="no_exday">[\s\S]*?(?:상승|하락|보합)<\/span>[\s\S]*?<span class="blind">([\d,]+)<\/span>/i
-  );
+  const directionText =
+    noExdayBlind.find((text) => text === "상승" || text === "하락" || text === "보합") ||
+    extractByPatterns(html, [
+      /<p class="no_exday">[\s\S]*?<span class="blind">(상승|하락|보합)<\/span>/i,
+      /(상한가|상승)/i,
+      /(하한가|하락)/i
+    ]);
 
-  const rateText = extractText(
-    html,
-    /<p class="no_exday">[\s\S]*?<span class="blind">([+-]?[\d.]+)%<\/span>/i
-  );
+  const changeText =
+    noExdayBlind.find((text) => /^[\d,]+$/.test(text)) ||
+    extractByPatterns(html, [
+      /<p class="no_exday">[\s\S]*?(?:상승|하락|보합)<\/span>[\s\S]*?<span class="blind">([\d,]+)<\/span>/i,
+      /전일대비[\s\S]*?<span class="blind">([\d,]+)<\/span>/i
+    ]);
 
-  const volumeText = extractText(
-    html,
-    /<span class="tah p11">거래량<\/span>[\s\S]*?<span class="blind">([\d,]+)<\/span>/i
-  );
+  const rateText =
+    noExdayBlind.find((text) => /[+\-−]?\d+(?:\.\d+)?%/.test(text)) ||
+    extractByPatterns(html, [
+      /<p class="no_exday">[\s\S]*?<span class="blind">([+\-−]?[\d.]+)%<\/span>/i,
+      /등락률[\s\S]*?<span class="blind">([+\-−]?[\d.]+)%<\/span>/i
+    ]);
+
+  const volumeText = extractByPatterns(html, [
+    /<span class="tah p11">거래량<\/span>[\s\S]*?<span class="blind">([\d,]+)<\/span>/i,
+    /거래량[\s\S]*?<span class="tah p11">([\d,]+)<\/span>/i,
+    /거래량[\s\S]*?<span class="blind">([\d,]+)<\/span>/i
+  ]);
 
   const price = parseNumber(priceText);
   let change = parseNumber(changeText);
@@ -58,9 +77,23 @@ function parseStock(html, symbol) {
   } else if (directionText === "상승") {
     change = Math.abs(change);
     rate = Math.abs(rate);
+  } else if (/하락/.test(directionText)) {
+    change = -Math.abs(change);
+    rate = -Math.abs(rate);
+  } else if (/상승|상한가/.test(directionText)) {
+    change = Math.abs(change);
+    rate = Math.abs(rate);
   } else {
-    change = 0;
-    rate = 0;
+    if (rate < 0 || /-/.test(rateText)) {
+      change = -Math.abs(change);
+      rate = -Math.abs(rate);
+    } else if (rate > 0 || /\+/.test(rateText)) {
+      change = Math.abs(change);
+      rate = Math.abs(rate);
+    } else if (!change && !rate) {
+      change = 0;
+      rate = 0;
+    }
   }
 
   return {
