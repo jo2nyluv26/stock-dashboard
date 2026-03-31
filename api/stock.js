@@ -24,6 +24,16 @@ function parseNumber(text) {
   return Number.isFinite(num) ? num : 0;
 }
 
+function htmlToText(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function parseDirectionFromBlock(noExdayBlock) {
   if (/no_down|하락|하한가/i.test(noExdayBlock)) return -1;
   if (/no_up|상승|상한가/i.test(noExdayBlock)) return 1;
@@ -65,6 +75,12 @@ function parseStock(html, symbol) {
     /<div class="wrap_company">[\s\S]*?<h2>[\s\S]*?<a[^>]*>([^<]+)<\/a>/i
   );
 
+  const text = htmlToText(html);
+  const textQuoteMatch = text.match(
+    /현재가\s*([\d,]+)\s*전일대비\s*(상승|하락|보합)\s*([\d,]+)\s*(?:마이너스|플러스)?\s*([+\-]?\d+(?:\.\d+)?)\s*퍼센트/i
+  );
+  const textVolumeMatch = text.match(/거래량\s*([\d,]+)/i);
+
   const priceText = extractByPatterns(html, [
     /<p class="no_today">[\s\S]*?<span class="blind">([\d,]+)<\/span>/i,
     /<dd>[\s\S]*?현재가[\s\S]*?<span class="blind">([\d,]+)<\/span>/i
@@ -75,23 +91,37 @@ function parseStock(html, symbol) {
   const changeText = parseChangeFromBlock(noExdayBlock);
   const rateText = parseRateFromBlock(noExdayBlock);
 
-  const price = parseNumber(priceText);
+  const price = parseNumber(textQuoteMatch?.[1] || priceText);
   let change = Math.abs(parseNumber(changeText));
-  let rate = parseNumber(rateText);
-  const volume = parseVolume(html);
+  let rate = parseNumber(textQuoteMatch?.[4] || rateText);
+  const volume = parseNumber(textVolumeMatch?.[1]) || parseVolume(html);
 
-  if (rateText) {
-    if (/^-/.test(rateText) || /−/.test(rateText)) rate = -Math.abs(rate);
-    else if (/^\+/.test(rateText)) rate = Math.abs(rate);
-    else if (direction < 0) rate = -Math.abs(rate);
-    else if (direction > 0) rate = Math.abs(rate);
+  if (textQuoteMatch) {
+    const dirWord = textQuoteMatch[2];
+    change = Math.abs(parseNumber(textQuoteMatch[3]));
+    if (dirWord === "하락") {
+      change = -Math.abs(change);
+      rate = -Math.abs(rate);
+    } else if (dirWord === "상승") {
+      change = Math.abs(change);
+      rate = Math.abs(rate);
+    } else {
+      change = 0;
+    }
   } else {
-    rate = 0;
-  }
+    if (rateText) {
+      if (/^-/.test(rateText) || /−/.test(rateText)) rate = -Math.abs(rate);
+      else if (/^\+/.test(rateText)) rate = Math.abs(rate);
+      else if (direction < 0) rate = -Math.abs(rate);
+      else if (direction > 0) rate = Math.abs(rate);
+    } else {
+      rate = 0;
+    }
 
-  if (direction < 0) change = -Math.abs(change);
-  else if (direction > 0) change = Math.abs(change);
-  else if (rate < 0) change = -Math.abs(change);
+    if (direction < 0) change = -Math.abs(change);
+    else if (direction > 0) change = Math.abs(change);
+    else if (rate < 0) change = -Math.abs(change);
+  }
 
   return {
     symbol,
