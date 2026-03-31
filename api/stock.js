@@ -69,6 +69,23 @@ function parseVolume(html) {
   return parseNumber(volumeText);
 }
 
+function parseChartXml(xml) {
+  const items = [...xml.matchAll(/<item data="([^"]+)"/gi)].map((m) => m[1]);
+  return items
+    .map((line) => {
+      const [date, open, high, low, close, volume] = line.split("|");
+      return {
+        date,
+        open: parseNumber(open),
+        high: parseNumber(high),
+        low: parseNumber(low),
+        close: parseNumber(close),
+        volume: parseNumber(volume)
+      };
+    })
+    .filter((d) => d.close > 0);
+}
+
 function parseStock(html, symbol) {
   const name = extractText(
     html,
@@ -166,11 +183,28 @@ module.exports = async (req, res) => {
     const html = await response.text();
     const stock = parseStock(html, symbol);
 
+    let chart = [];
+    try {
+      const chartUrl = `https://fchart.stock.naver.com/sise.nhn?symbol=${symbol}&timeframe=day&count=40&requestType=0`;
+      const chartResponse = await fetch(chartUrl, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          Referer: targetUrl
+        }
+      });
+      if (chartResponse.ok) {
+        const xml = await chartResponse.text();
+        chart = parseChartXml(xml);
+      }
+    } catch {
+      chart = [];
+    }
+
     if (!stock.price) {
       return res.status(502).json({ error: "Failed to parse stock data" });
     }
 
-    return res.status(200).json(stock);
+    return res.status(200).json({ ...stock, chart });
   } catch (error) {
     return res.status(500).json({ error: "Internal Server Error", message: error.message });
   }

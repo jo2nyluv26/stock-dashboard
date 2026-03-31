@@ -504,7 +504,7 @@
       <div id="detailPrice" class="detail-price">-</div>
       <section id="detailGrid" class="detail-grid"></section>
       <section class="chart-wrap">
-        <div class="chart-label">최근 가격 흐름 (30초 간격)</div>
+        <div class="chart-label">최근 가격 흐름 (실시간 스냅샷 + 일봉)</div>
         <svg id="detailChart" class="price-chart" viewBox="0 0 480 130" preserveAspectRatio="none" aria-label="가격 차트"></svg>
         <div id="chartMeta" class="chart-meta"></div>
       </section>
@@ -757,10 +757,14 @@
     }
 
     function renderPriceChart(symbol) {
-      const points = (priceHistory[symbol] || []).filter((p) => Number.isFinite(Number(p.p)) && Number(p.p) > 0);
+      const historyPoints = (priceHistory[symbol] || []).filter((p) => Number.isFinite(Number(p.p)) && Number(p.p) > 0);
+      const apiChart = (latestDataBySymbol[symbol]?.chart || []).filter((p) => Number.isFinite(Number(p.close)) && Number(p.close) > 0);
+      const points = historyPoints.length >= 2
+        ? historyPoints
+        : apiChart.map((d) => ({ t: d.date, p: d.close }));
       if (points.length < 2) {
         detailChartEl.innerHTML = '<text x=\"50%\" y=\"50%\" fill=\"#93a0b5\" font-size=\"13\" text-anchor=\"middle\" dominant-baseline=\"middle\">차트 데이터 수집 중...</text>';
-        chartMetaEl.innerHTML = '<span>최소 2개 스냅샷부터 표시됩니다.</span>';
+        chartMetaEl.innerHTML = '<span>차트 데이터 수집 중입니다.</span>';
         return;
       }
 
