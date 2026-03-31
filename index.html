@@ -1,0 +1,399 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>관심종목 대시보드</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #00d4aa;
+      --up: #00d4aa;
+      --down: #ff5b6e;
+      --border: #30363d;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top right, #112032 0%, var(--bg) 45%);
+      color: var(--text);
+      font-family: "Segoe UI", "Apple SD Gothic Neo", sans-serif;
+      min-height: 100vh;
+    }
+
+    .container {
+      width: min(1100px, 94vw);
+      margin: 24px auto 48px;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      font-size: 1.5rem;
+    }
+
+    .panel {
+      background: color-mix(in srgb, var(--panel) 92%, #fff 8%);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    input[type="text"] {
+      background: #0b1220;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      min-width: 220px;
+      outline: none;
+    }
+
+    button {
+      border: 1px solid var(--border);
+      background: #1f2937;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 9px 12px;
+      cursor: pointer;
+      transition: 0.2s ease;
+    }
+
+    button:hover { border-color: var(--accent); }
+
+    .btn-primary {
+      background: color-mix(in srgb, var(--accent) 22%, #0d1117 78%);
+      border-color: color-mix(in srgb, var(--accent) 50%, var(--border) 50%);
+    }
+
+    .presets {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .preset-btn {
+      font-size: 0.87rem;
+      padding: 6px 10px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      background: #0b1220;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .metric .label { color: var(--muted); font-size: 0.82rem; }
+    .metric .value { margin-top: 6px; font-size: 1.08rem; font-weight: 600; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+
+    .card {
+      background: #0b1220;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card.flash-up { animation: flashUp 0.6s ease; }
+    .card.flash-down { animation: flashDown 0.6s ease; }
+
+    @keyframes flashUp {
+      0% { box-shadow: 0 0 0 0 rgba(0, 212, 170, 0.4); }
+      100% { box-shadow: 0 0 0 14px rgba(0, 212, 170, 0); }
+    }
+
+    @keyframes flashDown {
+      0% { box-shadow: 0 0 0 0 rgba(255, 91, 110, 0.35); }
+      100% { box-shadow: 0 0 0 14px rgba(255, 91, 110, 0); }
+    }
+
+    .name {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .symbol { color: var(--muted); font-size: 0.82rem; }
+    .price { font-size: 1.5rem; font-weight: 700; margin: 10px 0 8px; }
+    .up { color: var(--up); }
+    .down { color: var(--down); }
+
+    .meta {
+      font-size: 0.9rem;
+      color: var(--muted);
+      display: grid;
+      gap: 4px;
+    }
+
+    .remove {
+      background: transparent;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+    }
+
+    .footer {
+      margin-top: 8px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+
+    @media (max-width: 720px) {
+      .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .container { margin-top: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <h1>관심종목 주식 대시보드</h1>
+
+    <section class="panel">
+      <div class="controls">
+        <input id="symbolInput" type="text" maxlength="6" placeholder="종목코드 6자리 (예: 286940)" />
+        <button id="addBtn" class="btn-primary">추가</button>
+        <button id="refreshBtn">즉시 새로고침</button>
+      </div>
+      <div id="presets" class="presets"></div>
+      <div class="footer">최대 10개 저장 가능, 30초마다 자동 갱신</div>
+    </section>
+
+    <section class="panel summary" id="summary"></section>
+
+    <section class="grid" id="cards"></section>
+  </main>
+
+  <script>
+    const STORAGE_KEY = "watchSymbols";
+    const MAX_SYMBOLS = 10;
+    const REFRESH_MS = 30000;
+
+    const PRESETS = [
+      { name: "롯데이노베이트", symbol: "286940" },
+      { name: "삼성전자", symbol: "005930" },
+      { name: "SK하이닉스", symbol: "000660" },
+      { name: "NAVER", symbol: "035420" },
+      { name: "카카오", symbol: "035720" },
+      { name: "LG에너지솔루션", symbol: "373220" },
+      { name: "POSCO홀딩스", symbol: "005490" },
+      { name: "현대차", symbol: "005380" }
+    ];
+
+    const symbolInput = document.getElementById("symbolInput");
+    const addBtn = document.getElementById("addBtn");
+    const refreshBtn = document.getElementById("refreshBtn");
+    const presetsEl = document.getElementById("presets");
+    const cardsEl = document.getElementById("cards");
+    const summaryEl = document.getElementById("summary");
+
+    let symbols = loadSymbols();
+    let prevPrices = {};
+    let refreshTimer = null;
+
+    function loadSymbols() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+        return Array.isArray(saved) ? saved.filter(isValidSymbol).slice(0, MAX_SYMBOLS) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveSymbols() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(symbols));
+    }
+
+    function isValidSymbol(symbol) {
+      return /^\d{6}$/.test(symbol);
+    }
+
+    function formatNumber(value) {
+      return Number(value || 0).toLocaleString("ko-KR");
+    }
+
+    function addSymbol(symbol) {
+      if (!isValidSymbol(symbol)) {
+        alert("종목코드는 6자리 숫자여야 합니다.");
+        return;
+      }
+      if (symbols.includes(symbol)) return;
+      if (symbols.length >= MAX_SYMBOLS) {
+        alert("최대 10개 종목까지만 추가할 수 있습니다.");
+        return;
+      }
+      symbols.push(symbol);
+      saveSymbols();
+      fetchAll();
+    }
+
+    function removeSymbol(symbol) {
+      symbols = symbols.filter((s) => s !== symbol);
+      delete prevPrices[symbol];
+      saveSymbols();
+      fetchAll();
+    }
+
+    function renderPresets() {
+      presetsEl.innerHTML = "";
+      PRESETS.forEach((preset) => {
+        const btn = document.createElement("button");
+        btn.className = "preset-btn";
+        btn.textContent = `${preset.name} (${preset.symbol})`;
+        btn.addEventListener("click", () => addSymbol(preset.symbol));
+        presetsEl.appendChild(btn);
+      });
+    }
+
+    function renderSummary(data) {
+      const total = data.length;
+      const ups = data.filter((d) => d.rate > 0).length;
+      const downs = data.filter((d) => d.rate < 0).length;
+      const avg = total ? data.reduce((acc, d) => acc + (d.rate || 0), 0) / total : 0;
+
+      summaryEl.innerHTML = `
+        <div class="metric"><div class="label">종목 수</div><div class="value">${total}</div></div>
+        <div class="metric"><div class="label">상승</div><div class="value up">${ups}</div></div>
+        <div class="metric"><div class="label">하락</div><div class="value down">${downs}</div></div>
+        <div class="metric"><div class="label">평균 등락률</div><div class="value ${avg >= 0 ? "up" : "down"}">${avg.toFixed(2)}%</div></div>
+      `;
+    }
+
+    function renderCards(items) {
+      cardsEl.innerHTML = "";
+
+      if (!items.length) {
+        cardsEl.innerHTML = '<div class="panel">관심종목을 추가해 주세요.</div>';
+        return;
+      }
+
+      items.forEach((item) => {
+        const card = document.createElement("article");
+        card.className = "card";
+
+        const directionClass = item.rate > 0 ? "up" : item.rate < 0 ? "down" : "";
+        const signedChange = item.change > 0 ? `+${formatNumber(item.change)}` : item.change < 0 ? `-${formatNumber(Math.abs(item.change))}` : "0";
+        const signedRate = item.rate > 0 ? `+${item.rate.toFixed(2)}%` : `${item.rate.toFixed(2)}%`;
+
+        const prev = prevPrices[item.symbol];
+        if (typeof prev === "number" && prev !== item.price) {
+          card.classList.add(item.price > prev ? "flash-up" : "flash-down");
+        }
+        prevPrices[item.symbol] = item.price;
+
+        card.innerHTML = `
+          <div class="name">
+            <span>${item.name}</span>
+            <button class="remove" data-symbol="${item.symbol}">삭제</button>
+          </div>
+          <div class="symbol">${item.symbol}</div>
+          <div class="price">${formatNumber(item.price)}원</div>
+          <div class="meta ${directionClass}">
+            <div>등락률: ${signedRate}</div>
+            <div>등락금액: ${signedChange}원</div>
+          </div>
+          <div class="meta"><div>거래량: ${formatNumber(item.volume)}</div></div>
+        `;
+
+        cardsEl.appendChild(card);
+      });
+
+      cardsEl.querySelectorAll(".remove").forEach((btn) => {
+        btn.addEventListener("click", () => removeSymbol(btn.dataset.symbol));
+      });
+    }
+
+    async function fetchStock(symbol) {
+      const res = await fetch(`/api/stock?symbol=${symbol}`);
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      return res.json();
+    }
+
+    async function fetchAll() {
+      if (!symbols.length) {
+        renderSummary([]);
+        renderCards([]);
+        return;
+      }
+
+      const results = await Promise.all(
+        symbols.map(async (symbol) => {
+          try {
+            return await fetchStock(symbol);
+          } catch {
+            return {
+              symbol,
+              name: `${symbol} (오류)`,
+              price: 0,
+              change: 0,
+              rate: 0,
+              volume: 0,
+              timestamp: new Date().toISOString()
+            };
+          }
+        })
+      );
+
+      renderSummary(results);
+      renderCards(results);
+    }
+
+    function startAutoRefresh() {
+      if (refreshTimer) clearInterval(refreshTimer);
+      refreshTimer = setInterval(fetchAll, REFRESH_MS);
+    }
+
+    function initEvents() {
+      addBtn.addEventListener("click", () => {
+        addSymbol(symbolInput.value.trim());
+        symbolInput.value = "";
+      });
+
+      symbolInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") addBtn.click();
+      });
+
+      refreshBtn.addEventListener("click", fetchAll);
+    }
+
+    function init() {
+      renderPresets();
+      initEvents();
+      fetchAll();
+      startAutoRefresh();
+    }
+
+    init();
+  </script>
+</body>
+</html>
