@@ -19,9 +19,44 @@ function extractByPatterns(html, patterns) {
 
 function parseNumber(text) {
   if (!text) return 0;
-  const cleaned = text.replace(/[−﹣]/g, "-").replace(/[^\d.-]/g, "");
+  const cleaned = String(text).replace(/[−﹣]/g, "-").replace(/[^\d.-]/g, "");
   const num = Number(cleaned);
   return Number.isFinite(num) ? num : 0;
+}
+
+function parseDirectionFromBlock(noExdayBlock) {
+  if (/no_down|하락|하한가/i.test(noExdayBlock)) return -1;
+  if (/no_up|상승|상한가/i.test(noExdayBlock)) return 1;
+  return 0;
+}
+
+function parseChangeFromBlock(noExdayBlock) {
+  const blindValues = [...noExdayBlock.matchAll(/<span class="blind">([^<]+)<\/span>/gi)].map((m) => m[1].trim());
+
+  const blindNumber = blindValues.find((v) => /^[\d,]+$/.test(v));
+  if (blindNumber) return blindNumber;
+
+  const emBlock = extractText(noExdayBlock, /<em[^>]*>([\s\S]*?)<\/em>/i);
+  const digits = [...emBlock.matchAll(/<span class="no\d+">(\d)<\/span>/gi)].map((m) => m[1]);
+  if (digits.length) return digits.join("");
+
+  return "";
+}
+
+function parseRateFromBlock(noExdayBlock) {
+  return extractByPatterns(noExdayBlock, [
+    /<span class="blind">([+\-−]?\d+(?:\.\d+)?)%<\/span>/i,
+    /([+\-−]?\d+(?:\.\d+)?)%/i
+  ]);
+}
+
+function parseVolume(html) {
+  const volumeText = extractByPatterns(html, [
+    /<tr[^>]*>\s*<th[^>]*>\s*<span class="tah p11">거래량<\/span>[\s\S]*?<td[^>]*>\s*<span class="tah p11">([\d,]+)<\/span>/i,
+    /<tr[^>]*>\s*<th[^>]*>\s*<span class="tah p11">거래량<\/span>[\s\S]*?<td[^>]*>[\s\S]*?<span class="blind">([\d,]+)<\/span>/i,
+    /<span class="tah p11">거래량<\/span>[\s\S]{0,120}?<span class="tah p11">([\d,]+)<\/span>/i
+  ]);
+  return parseNumber(volumeText);
 }
 
 function parseStock(html, symbol) {
@@ -36,65 +71,27 @@ function parseStock(html, symbol) {
   ]);
 
   const noExdayBlock = extractText(html, /<p class="no_exday">([\s\S]*?)<\/p>/i);
-  const noExdayBlind = [...noExdayBlock.matchAll(/<span class="blind">([^<]+)<\/span>/gi)].map((m) => m[1].trim());
-
-  const directionText =
-    noExdayBlind.find((text) => text === "상승" || text === "하락" || text === "보합") ||
-    extractByPatterns(html, [
-      /<p class="no_exday">[\s\S]*?<span class="blind">(상승|하락|보합)<\/span>/i,
-      /(상한가|상승)/i,
-      /(하한가|하락)/i
-    ]);
-
-  const changeText =
-    noExdayBlind.find((text) => /^[\d,]+$/.test(text)) ||
-    extractByPatterns(html, [
-      /<p class="no_exday">[\s\S]*?(?:상승|하락|보합)<\/span>[\s\S]*?<span class="blind">([\d,]+)<\/span>/i,
-      /전일대비[\s\S]*?<span class="blind">([\d,]+)<\/span>/i
-    ]);
-
-  const rateText =
-    noExdayBlind.find((text) => /[+\-−]?\d+(?:\.\d+)?%/.test(text)) ||
-    extractByPatterns(html, [
-      /<p class="no_exday">[\s\S]*?<span class="blind">([+\-−]?[\d.]+)%<\/span>/i,
-      /등락률[\s\S]*?<span class="blind">([+\-−]?[\d.]+)%<\/span>/i
-    ]);
-
-  const volumeText = extractByPatterns(html, [
-    /<span class="tah p11">거래량<\/span>[\s\S]*?<span class="blind">([\d,]+)<\/span>/i,
-    /거래량[\s\S]*?<span class="tah p11">([\d,]+)<\/span>/i,
-    /거래량[\s\S]*?<span class="blind">([\d,]+)<\/span>/i
-  ]);
+  const direction = parseDirectionFromBlock(noExdayBlock);
+  const changeText = parseChangeFromBlock(noExdayBlock);
+  const rateText = parseRateFromBlock(noExdayBlock);
 
   const price = parseNumber(priceText);
-  let change = parseNumber(changeText);
+  let change = Math.abs(parseNumber(changeText));
   let rate = parseNumber(rateText);
-  const volume = parseNumber(volumeText);
+  const volume = parseVolume(html);
 
-  if (directionText === "하락") {
-    change = -Math.abs(change);
-    rate = -Math.abs(rate);
-  } else if (directionText === "상승") {
-    change = Math.abs(change);
-    rate = Math.abs(rate);
-  } else if (/하락/.test(directionText)) {
-    change = -Math.abs(change);
-    rate = -Math.abs(rate);
-  } else if (/상승|상한가/.test(directionText)) {
-    change = Math.abs(change);
-    rate = Math.abs(rate);
+  if (rateText) {
+    if (/^-/.test(rateText) || /−/.test(rateText)) rate = -Math.abs(rate);
+    else if (/^\+/.test(rateText)) rate = Math.abs(rate);
+    else if (direction < 0) rate = -Math.abs(rate);
+    else if (direction > 0) rate = Math.abs(rate);
   } else {
-    if (rate < 0 || /-/.test(rateText)) {
-      change = -Math.abs(change);
-      rate = -Math.abs(rate);
-    } else if (rate > 0 || /\+/.test(rateText)) {
-      change = Math.abs(change);
-      rate = Math.abs(rate);
-    } else if (!change && !rate) {
-      change = 0;
-      rate = 0;
-    }
+    rate = 0;
   }
+
+  if (direction < 0) change = -Math.abs(change);
+  else if (direction > 0) change = Math.abs(change);
+  else if (rate < 0) change = -Math.abs(change);
 
   return {
     symbol,
