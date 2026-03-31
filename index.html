@@ -556,6 +556,7 @@
     let latestDataBySymbol = {};
     let selectedSymbol = null;
     let priceHistory = loadHistory();
+    let lastFocusedEl = null;
 
     function loadSymbols() {
       try {
@@ -830,16 +831,25 @@
     function openDetail(symbol) {
       const item = latestDataBySymbol[symbol];
       if (!item) return;
+      lastFocusedEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       selectedSymbol = symbol;
       renderDetail(item);
       detailOverlay.classList.add("open");
       detailOverlay.setAttribute("aria-hidden", "false");
+      closeDetailBtn.focus({ preventScroll: true });
     }
 
     function closeDetail() {
+      if (detailOverlay.contains(document.activeElement)) {
+        document.activeElement.blur();
+      }
       selectedSymbol = null;
       detailOverlay.classList.remove("open");
       detailOverlay.setAttribute("aria-hidden", "true");
+      const restoreTarget =
+        lastFocusedEl && lastFocusedEl.isConnected ? lastFocusedEl : refreshBtn;
+      restoreTarget.focus({ preventScroll: true });
+      lastFocusedEl = null;
     }
 
     async function fetchStock(symbol) {
